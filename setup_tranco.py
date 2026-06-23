@@ -18,7 +18,7 @@ import urllib.request
 import zipfile
 import io
 
-DATA_DIR   = os.path.join(os.path.dirname(__file__), 'data')
+DATA_DIR   = os.environ.get('DATA_DIR') or os.path.join(os.path.dirname(__file__), 'data')
 OUT_PATH   = os.path.join(DATA_DIR, 'tranco.csv')   # matches tranco_checker._LIST_PATH and load_phishtank
 # Latest aggregated Tranco list (changes weekly; use the stable URL)
 TRANCO_URL = 'https://tranco-list.eu/top-1m.csv.zip'
