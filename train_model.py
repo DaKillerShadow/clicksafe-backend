@@ -31,7 +31,7 @@ RANDOM_SEED = 42
 np.random.seed(RANDOM_SEED)
 
 # ── Output path ───────────────────────────────────────────────────────────────
-MODEL_DIR  = os.path.join(os.path.dirname(__file__), "models")
+MODEL_DIR  = os.environ.get('MODEL_DIR') or os.path.join(os.path.dirname(__file__), "models")
 MODEL_PATH = os.path.join(MODEL_DIR, "model.pkl")
 os.makedirs(MODEL_DIR, exist_ok=True)
 
@@ -101,6 +101,123 @@ def extract_features(url: str) -> list:
         vowel_ratio = round(
             sum(c in _VOWELS for c in hostname.lower()) / max(len(hostname), 1), 6
         )
+
+        # ── Feature [17]: has_non_standard_port ───────────────────────────────
+        port = parsed.port
+        has_non_standard_port = int(bool(port) and port not in _STANDARD_PORTS)
+
+        # ── Feature [18]: http_count_in_url ───────────────────────────────────
+        # Subtract 1 for the scheme itself; remaining hits = embedded redirects
+        http_count_in_url = max(0, url.lower().count('http') - 1)
+
+        return [
+            url_length, hostname_length, path_length, num_dots, num_hyphens,
+            num_underscores, num_slashes, num_query_params, num_special_chars,
+            has_ip_host, has_https, has_at_sign, subdomain_count, url_entropy,
+            has_suspicious_tld, hostname_digit_ratio, vowel_ratio,
+            has_non_standard_port, http_count_in_url,
+        ]
+
+    except Exception:
+        return [0] * 19
+
+
+# Named list — used for the feature importance report only.
+FEATURE_NAMES = [
+    "url_length", "hostname_length", "path_length",
+    "num_dots", "num_hyphens", "num_underscores",
+    "num_slashes", "num_query_params", "num_special_chars",
+    "has_ip_host", "has_https", "has_at_sign",
+    "subdomain_count", "url_entropy",
+    "has_suspicious_tld", "hostname_digit_ratio", "vowel_ratio",
+    "has_non_standard_port", "http_count_in_url",
+]
+
+
+print("─" * 60)
+print("  Phishing URL Detector — Model Training (v2, 19 features)")
+print("─" * 60)
+
+# =============================================================================
+# 2. LOAD DATA & EXTRACT FEATURES
+# =============================================================================
+print("\n[1/5] Loading dataset and extracting features …")
+DATA_PATH = os.path.join(
+    os.environ.get('DATA_DIR') or os.path.join(os.path.dirname(__file__), "data"),
+    "training_data.csv",
+)
+
+if not os.path.exists(DATA_PATH):
+    raise FileNotFoundError(
+        f"Dataset not found at {DATA_PATH}. "
+        "Add training_data.csv or run load_phishtank.py first."
+    )
+
+df   = pd.read_csv(DATA_PATH)
+urls = df["url"].tolist()
+y    = df["label"].values
+
+X_list = [extract_features(u) for u in urls]
+X      = np.array(X_list)
+
+print(
+    f"    Samples: {len(y):,}  |  "
+    f"Legitimate: {(y==0).sum():,}  |  "
+    f"Phishing: {(y==1).sum():,}  |  "
+    f"Features: {X.shape[1]}"
+)
+
+# =============================================================================
+# 3. TRAIN / TEST SPLIT
+# =============================================================================
+print("\n[2/5] Splitting 80% train / 20% test …")
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=RANDOM_SEED, stratify=y,
+)
+print(f"    Train: {len(X_train):,}   Test: {len(X_test):,}")
+
+# =============================================================================
+# 4. MODEL TRAINING
+# =============================================================================
+print("\n[3/5] Training Random Forest …")
+model = RandomForestClassifier(
+    n_estimators=100,
+    max_depth=10,
+    min_samples_leaf=5,
+    random_state=RANDOM_SEED,
+    n_jobs=-1,
+)
+model.fit(X_train, y_train)
+print("    Training complete.")
+
+# =============================================================================
+# 5. EVALUATION
+# =============================================================================
+print("\n[4/5] Evaluating on held-out test set …")
+y_pred = model.predict(X_test)
+acc    = accuracy_score(y_test, y_pred)
+print(f"\n    Accuracy: {acc*100:.2f}%\n")
+print("    Classification Report:")
+print(classification_report(y_test, y_pred, target_names=["Legitimate", "Phishing"]))
+
+importances = sorted(
+    zip(FEATURE_NAMES, model.feature_importances_),
+    key=lambda x: x[1], reverse=True,
+)
+print("    Top 5 most important features:")
+for name, imp in importances[:5]:
+    bar = "█" * int(imp * 100)
+    print(f"      {name:<26} {imp:.4f}  {bar}")
+
+# =============================================================================
+# 6. SAVE MODEL
+# =============================================================================
+print(f"\n[5/5] Saving model to {MODEL_PATH} …")
+joblib.dump(model, MODEL_PATH)
+print(f"    ✔  model.pkl saved  ({model.n_features_in_} features)\n")
+print("─" * 60)
+print("  Start the Flask server:  python app.py")
+print("─" * 60)
 
         # ── Feature [17]: has_non_standard_port ───────────────────────────────
         port = parsed.port
