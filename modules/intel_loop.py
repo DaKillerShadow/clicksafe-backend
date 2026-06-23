@@ -60,40 +60,19 @@ class IntelLoop:
     # ── Public API ─────────────────────────────────────────────────────────────
 
     def ingest(self, urls: list[str], label: int = 1, source: str = 'manual') -> dict:
-        """
-        Ingest a batch of URLs as new labelled training samples.
-
-        Parameters
-        ----------
-        urls   : list[str]  New phishing (label=1) or safe (label=0) URLs.
-        label  : int        Ground truth: 1 = phishing, 0 = safe.
-        source : str        Where did this intel come from? (audit trail)
-
-        BUG FIX: removed the unused `api_key` parameter — authentication is
-        enforced in app.py before this method is ever called.
-
-        Returns
-        -------
-        dict — ingestion report including whether retraining was triggered.
-        """
         if not urls:
             return {'success': False, 'error': 'No URLs provided.', 'retrained': False}
 
         from .ml_engine import MLEngine
-        engine = self._ml_engine or MLEngine()
-
-        ingested = 0
-        skipped  = 0
-        for url in urls:
-            try:
-                features = engine.extract_features(url)
-                sig = {
-                    'url':       url,
-                    'label':     label,
-                    'features':  features,
-                    'source':    source,
-                    'timestamp': datetime.now(timezone.utc).isoformat(),
-                }
+        try:
+            engine = self._ml_engine or MLEngine()
+        except FileNotFoundError as exc:
+            return {
+                'success':   False,
+                'error':     str(exc),
+                'hint':      'Run train_model.py to create the base model before ingesting.',
+                'retrained': False,
+            }
                 self._signatures.append(sig)
                 ingested += 1
             except Exception as exc:
