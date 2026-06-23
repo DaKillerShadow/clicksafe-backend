@@ -8,7 +8,6 @@ RUN apt-get update && apt-get install -y \
     curl \
     libglib2.0-0 \
     libnss3 \
-    libgconf-2-4 \
     libfontconfig1 \
     && wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - \
     && sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/default/chrome' \
@@ -29,4 +28,3 @@ COPY . .
 
 # Run the app with gunicorn binding to Render's dynamic PORT variable
 CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-5000} app:app"]
-
