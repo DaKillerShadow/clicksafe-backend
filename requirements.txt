@@ -1,0 +1,32 @@
+# IsThisSafe Backend — Python Dependencies
+# Install with: pip install -r requirements.txt
+
+# ── Core (preserved from original) ─────────────────────────
+gunicorn==25.3.0
+joblib==1.5.3
+numpy==2.4.4
+scikit-learn==1.8.0
+scipy==1.17.1
+
+# ── Web API ─────────────────────────────────────────────────
+flask>=3.0.0
+flask-cors>=4.0.0
+
+# ── Training Pipeline ────────────────────────────────────────
+# Required by load_phishtank.py, train_model.py, augment_training_data.py
+pandas>=2.0.0
+
+# ── Rate Limiting ─────────────────────────────────────────────
+flask-limiter>=3.0.0
+
+# ── New Feature Dependencies ─────────────────────────────────
+# WHOIS domain age lookup
+python-whois>=0.9.4
+
+# HTTP redirect tracing (already in stdlib via urllib, but requests is cleaner)
+requests>=2.31.0
+
+# Headless browser / Selenium (Deep Path)
+# Also install Chrome: https://googlechromelabs.github.io/chrome-for-testing/
+selenium>=4.18.0
+webdriver-manager>=4.0.1

@@ -1,0 +1,49 @@
+# =============================================================================
+# backend/.gitignore
+# =============================================================================
+# SECURITY: .env contains live API keys (INTEL_API_KEY, GOOGLE_SAFE_BROWSING_KEY).
+# It must NEVER be committed.  Only .env.example (with placeholder values) is
+# tracked.  Rotate any key that was committed before this file was in place.
+# =============================================================================
+
+# ── Secrets & local config (NEVER commit) ─────────────────────────────────────
+.env
+*.env
+.env.*
+!.env.example          # .env.example IS tracked — it has no real values
+
+# ── Python byte-code & caches ─────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+.pytest_cache/
+.mypy_cache/
+
+# ── Virtual environments ───────────────────────────────────────────────────────
+venv/
+.venv/
+env/
+ENV/
+
+# ── ML artefacts (large binaries — download or train locally) ─────────────────
+models/model.pkl
+models/*.pkl
+
+# ── Generated training data (regenerate with load_phishtank.py) ───────────────
+data/tranco.csv
+data/tranco_top100k.txt
+data/training_data.csv
+data/verified_online.csv
+data/phishing_signatures.json
+
+# ── Selenium / WebDriver artefacts ────────────────────────────────────────────
+.wdm/
+
+# ── OS & IDE noise ────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
