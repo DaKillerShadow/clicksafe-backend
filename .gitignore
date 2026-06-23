@@ -26,9 +26,11 @@ venv/
 env/
 ENV/
 
-# ── ML artefacts (large binaries — download or train locally) ─────────────────
-models/model.pkl
-models/*.pkl
+# ── ML artefacts ────────────────────────────────────────────────────────────
+# models/model.pkl IS tracked. Free-tier deploys have no persistent disk,
+# so build.sh no longer trains on every build — it ships the model
+# committed here instead. Run train_model.py locally and commit the
+# updated file when you want a new model in production.
 
 # ── Generated training data (regenerate with load_phishtank.py) ───────────────
 data/tranco.csv
