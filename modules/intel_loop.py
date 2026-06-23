@@ -73,6 +73,19 @@ class IntelLoop:
                 'hint':      'Run train_model.py to create the base model before ingesting.',
                 'retrained': False,
             }
+
+        ingested = 0
+        skipped  = 0
+        for url in urls:
+            try:
+                features = engine.extract_features(url)
+                sig = {
+                    'url':       url,
+                    'label':     label,
+                    'features':  features,
+                    'source':    source,
+                    'timestamp': datetime.now(timezone.utc).isoformat(),
+                }
                 self._signatures.append(sig)
                 ingested += 1
             except Exception as exc:
