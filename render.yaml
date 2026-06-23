@@ -1,0 +1,163 @@
+# =============================================================================
+# render.yaml — ClickSafe Backend Infrastructure (Render Blueprint)
+# =============================================================================
+# Deploy: push this file to your repo root, then in Render dashboard:
+#   New → Blueprint → connect your repo → Render reads this file automatically.
+#
+# Services defined here:
+#   1. clicksafe-api      — main Flask/Gunicorn web service
+#   2. clicksafe-redis    — Redis for multi-worker rate limiting
+#   3. retrain-weekly     — cron: retrain model every Sunday 2 AM UTC
+#   4. tranco-refresh     — cron: refresh Tranco whitelist every Monday 3 AM UTC
+#   5. phishtank-refresh  — cron: refresh PhishTank training data every day 4 AM UTC
+#
+# Persistent disk (models-data) is shared across the web service and all cron
+# jobs via the same mountPath, so data written by cron jobs is immediately
+# visible to the running API without a redeploy.
+# =============================================================================
+
+services:
+
+  # ── 1. Main Web Service ────────────────────────────────────────────────────
+  - type: web
+    name: clicksafe-api
+    runtime: python
+    region: oregon           # change to frankfurt / singapore as needed
+    plan: starter            # upgrade to standard for more RAM (Selenium is heavy)
+
+    buildCommand: bash build.sh
+    startCommand: gunicorn -w 1 -b 0.0.0.0:$PORT --timeout 120 --keep-alive 5 app:app
+
+    # ── Health check ──────────────────────────────────────────────────────────
+    # Render waits for this to return 200 before routing traffic.
+    # The /health endpoint reports model_loaded and tranco_domains count.
+    healthCheckPath: /health
+
+    # ── Persistent disk ───────────────────────────────────────────────────────
+    # Survives deploys. Stores model.pkl, tranco.csv, training_data.csv,
+    # phishing_signatures.json — all files excluded from git by .gitignore.
+    disk:
+      name: models-data
+      mountPath: /opt/render/project/src/data-persist
+      sizeGB: 2
+
+    # ── Environment variables ─────────────────────────────────────────────────
+    envVars:
+      # ── Required secrets (set via Render dashboard → Environment) ───────────
+      - key: INTEL_API_KEY
+        sync: false          # set manually in dashboard — never commit this
+
+      # ── CORS: comma-separated allowed origins ────────────────────────────────
+      # Example: https://clicksafe.app,https://app.clicksafe.app
+      - key: ALLOWED_ORIGINS
+        value: "*"           # tighten to your Flutter web domain in production
+
+      # ── Selenium: Render containers cannot run Chrome sandbox without this ───
+      # deep_analyzer.py reads CHROME_NO_SANDBOX to add --no-sandbox flag.
+      - key: CHROME_NO_SANDBOX
+        value: "1"
+
+      # ── Paths: point model/data dirs at the persistent disk ─────────────────
+      - key: MODEL_DIR
+        value: /opt/render/project/src/data-persist/models
+
+      - key: DATA_DIR
+        value: /opt/render/project/src/data-persist/data
+
+      # ── Rate limiter: switch from memory:// to Redis for multi-worker support ─
+      # Remove this (and -w 1 in startCommand) only after adding a Redis service.
+      # With memory://, you MUST keep -w 1 — each worker has its own counter.
+      - key: RATELIMIT_STORAGE_URI
+        value: memory://       # replace with fromService ref below when Redis added
+
+      # ── Optional: PhishTank API key (removes 5-min rate limit on download) ──
+      - key: PHISHTANK_API_KEY
+        sync: false            # leave blank if you don't have one
+
+      # ── Gunicorn tuning ──────────────────────────────────────────────────────
+      - key: WEB_CONCURRENCY
+        value: "1"             # keep at 1 while using memory:// rate limiter
+
+  # ── 2. Redis (uncomment when ready to go multi-worker) ────────────────────
+  # Switching to Redis lets you run -w 2 or more Gunicorn workers safely.
+  # Steps:
+  #   a) Uncomment this block and redeploy the blueprint.
+  #   b) In clicksafe-api envVars, change RATELIMIT_STORAGE_URI to:
+  #        fromService:
+  #          name: clicksafe-redis
+  #          type: redis
+  #          property: connectionString
+  #   c) Change startCommand -w 1 to -w 2 (or more).
+  #
+  # - type: redis
+  #   name: clicksafe-redis
+  #   region: oregon
+  #   plan: starter
+  #   ipAllowList: []          # only allow Render internal traffic
+
+  # ── 3. Cron: weekly model retrain ─────────────────────────────────────────
+  # Rebuilds model.pkl from all accumulated training data every Sunday at 2 AM.
+  # Writes to the shared persistent disk — no redeploy needed.
+  - type: cron
+    name: retrain-weekly
+    runtime: python
+    region: oregon
+    plan: starter
+    schedule: "0 2 * * 0"     # every Sunday 02:00 UTC
+    buildCommand: pip install -r requirements.txt
+    startCommand: python train_model.py
+
+    disk:
+      name: models-data        # same disk name = same shared volume
+      mountPath: /opt/render/project/src/data-persist
+      sizeGB: 2
+
+    envVars:
+      - key: MODEL_DIR
+        value: /opt/render/project/src/data-persist/models
+      - key: DATA_DIR
+        value: /opt/render/project/src/data-persist/data
+
+  # ── 4. Cron: weekly Tranco whitelist refresh ───────────────────────────────
+  # Tranco publishes a new list every Monday. This job downloads it fresh
+  # and saves to the persistent disk so TrancoChecker picks it up immediately.
+  - type: cron
+    name: tranco-refresh
+    runtime: python
+    region: oregon
+    plan: starter
+    schedule: "0 3 * * 1"     # every Monday 03:00 UTC (after new list publishes)
+    buildCommand: pip install -r requirements.txt
+    startCommand: python setup_tranco.py
+
+    disk:
+      name: models-data
+      mountPath: /opt/render/project/src/data-persist
+      sizeGB: 2
+
+    envVars:
+      - key: DATA_DIR
+        value: /opt/render/project/src/data-persist/data
+
+  # ── 5. Cron: daily PhishTank training data refresh ────────────────────────
+  # Downloads fresh verified phishing URLs from PhishTank daily.
+  # Does NOT retrain — that's left to the weekly job (or IntelLoop).
+  - type: cron
+    name: phishtank-refresh
+    runtime: python
+    region: oregon
+    plan: starter
+    schedule: "0 4 * * *"     # every day 04:00 UTC
+    buildCommand: pip install -r requirements.txt
+    startCommand: python load_phishtank.py --download --build
+
+    disk:
+      name: models-data
+      mountPath: /opt/render/project/src/data-persist
+      sizeGB: 2
+
+    envVars:
+      - key: DATA_DIR
+        value: /opt/render/project/src/data-persist/data
+      - key: PHISHTANK_API_KEY
+        sync: false
