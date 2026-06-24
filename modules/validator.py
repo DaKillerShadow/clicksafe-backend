@@ -10,6 +10,7 @@
 #
 # HOW IT WORKS (step-by-step):
 #   1. Strip leading/trailing whitespace.
+#   1.5. Refang threat intel URLs (hxxp -> http, [.] -> .).
 #   2. If there is no scheme (http:// or https://) we prepend "http://" so
 #      that urllib.parse can still split the URL into components correctly.
 #   3. Use urllib.parse.urlparse() to decompose the URL into parts:
@@ -46,17 +47,22 @@ class URLValidator:
         """
 
         # ── Step 1: Strip whitespace ─────────────────────────────────────────
-        # Users often accidentally paste trailing spaces or newlines.
         url = raw_url.strip()
 
         if not url:
             return self._fail("URL cannot be empty.")
 
+        # ── Step 1.5: Refang Threat Intel URLs ───────────────────────────────
+        url = url.replace('[.]', '.').replace('(.)', '.')
+        if url.lower().startswith("hxxp://"):
+            url = "http://" + url[7:]
+        elif url.lower().startswith("hxxps://"):
+            url = "https://" + url[8:]
+
         # ── Step 2: Inject a scheme if one is missing ────────────────────────
-        # "google.com" has no scheme; urlparse would treat the whole string as
-        # the *path*, leaving netloc empty.  We add "http://" so the parser
-        # can correctly identify the host.
-        if not url.startswith(("http://", "https://")):
+        # Convert to lowercase strictly for the prefix check to prevent 
+        # auto-capitalized inputs (e.g., "Http://") from being prepended twice.
+        if not url.lower().startswith(("http://", "https://")):
             url = "http://" + url
 
         # ── Step 3: Parse into components ────────────────────────────────────
@@ -66,13 +72,12 @@ class URLValidator:
             return self._fail(f"URL parsing error: {exc}")
 
         # ── Step 4: Validate scheme ──────────────────────────────────────────
-        if parsed.scheme not in self.ALLOWED_SCHEMES:
+        if parsed.scheme.lower() not in self.ALLOWED_SCHEMES:
             return self._fail(
                 f"Unsupported scheme '{parsed.scheme}'. Only http/https allowed."
             )
 
         # ── Step 5: Validate netloc (domain / IP) ────────────────────────────
-        # netloc is empty when the URL is something like "http://" with no host.
         if not parsed.netloc:
             return self._fail("No domain or IP found in URL.")
 
