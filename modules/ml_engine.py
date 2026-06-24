@@ -3,6 +3,11 @@
 # =============================================================================
 # CHANGES IN v2 (19 features):
 #
+#   COMPOUND TLD AWARENESS (New Fix):
+#     Feature [12] (subdomain_count) now checks for multi-segmented TLDs
+#     (e.g., .edu.kw, .com.eg) to calculate accurate subdomain counts and 
+#     maintain architectural alignment with the RuleEngine metrics.
+#
 #   Five new features appended — indices [14-18] — so existing feature
 #   indices [0-13] are unchanged and backward-compatible with any cached
 #   analysis results.  After running train_model.py the new model.pkl
@@ -50,6 +55,12 @@ class MLEngine:
     }
     _VOWELS         = set('aeiou')
     _STANDARD_PORTS = {80, 443, 8080, 8443}
+
+    # Common compound TLDs to filter during subdomain calculation
+    _COMPOUND_TLDS = {
+        ("edu", "kw"), ("ac", "uk"), ("co", "uk"), ("com", "eg"),
+        ("edu", "eg"), ("org", "eg"), ("net", "eg"), ("gov", "eg"),
+    }
 
     # Feature order — must stay in sync with train_model.py FEATURE_NAMES.
     _FEATURE_ORDER = [
@@ -105,7 +116,14 @@ class MLEngine:
         has_https         = int(parsed.scheme == "https")
         has_at_sign       = int("@" in url)
         clean_host        = hostname[4:] if hostname.startswith("www.") else hostname
-        subdomain_count   = max(0, len(clean_host.split(".")) - 2)
+        
+        # Subdomain count normalization for multi-segmented registration extensions
+        host_parts = clean_host.split(".")
+        if len(host_parts) >= 2 and tuple(host_parts[-2:]) in self._COMPOUND_TLDS:
+            subdomain_count = max(0, len(host_parts) - 3)
+        else:
+            subdomain_count = max(0, len(host_parts) - 2)
+
         url_entropy       = round(self._shannon_entropy(url), 6)
 
         # ── Feature [14]: has_suspicious_tld ──────────────────────────────────
@@ -161,7 +179,6 @@ class MLEngine:
 
         # LABEL THRESHOLD FIX: use 0.7, matching the combined-verdict threshold
         # in analyzer.py and AppConfig.mlPhishingThreshold in Flutter.
-        # The old 0.5 threshold made the label disagree with the final verdict.
         label = "phishing" if phishing_prob >= 0.7 else "safe"
 
         return {
@@ -180,3 +197,4 @@ class MLEngine:
         for ch in text:
             freq[ch] = freq.get(ch, 0) + 1
         return -sum((count / n) * math.log2(count / n) for count in freq.values())
+
