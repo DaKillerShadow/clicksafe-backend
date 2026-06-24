@@ -3,6 +3,11 @@
 # =============================================================================
 # FIXES IN THIS VERSION:
 #
+#   ORGANIZATIONAL WHITELIST (New):
+#     Added Stage 1.5 to intercept trusted organizational domains before they
+#     hit the Tranco or ML stages, resolving false positives on deep login
+#     paths for known infrastructure.
+#
 #   VERDICT BUG FIX (Critical):
 #     The previous code recomputed base_rule_score as
 #     sum(rule.get('score', 0) for rule in triggered_rules), which was always
@@ -138,6 +143,12 @@ class URLAnalyzer:
             'appleid.apple.com',
             'auth.amazon.com',
         }
+        
+        # Explicitly trusted organizational boundaries (Bypasses ML & Rules)
+        self.ORG_WHITELIST = {
+            'arabou.edu.kw',
+            'open.ac.uk',
+        }
 
         # ML-01: graceful degradation when model.pkl is absent
         try:
@@ -162,8 +173,8 @@ class URLAnalyzer:
     # ── Public API ─────────────────────────────────────────────────────────────
 
     def analyze(self, raw_url: str, visible_text: str = '') -> dict:
-        """Full pipeline: validate → whitelist → blocklist → Zero Trust →
-        rules + Zero-Day → ML → verdict."""
+        """Full pipeline: validate → org whitelist → tranco whitelist → 
+        blocklist → Zero Trust → rules + Zero-Day → ML → verdict."""
 
         # ── Stage 1: Validate & Normalise ────────────────────────────────────
         validation = self.validator.validate(raw_url)
@@ -180,6 +191,50 @@ class URLAnalyzer:
             }
 
         url = validation['url']
+
+        # ── Stage 1.5: Custom Organizational Whitelist ───────────────────────
+        from urllib.parse import urlparse as _up
+        _org_hostname = _up(url).netloc.lower().split(':')[0]
+        
+        is_org_whitelisted = any(
+            _org_hostname == org or _org_hostname.endswith('.' + org)
+            for org in self.ORG_WHITELIST
+        )
+        
+        if is_org_whitelisted:
+            return {
+                'success':         True,
+                'error':           '',
+                'url':             url,
+                'verdict':         'safe',
+                'verdict_label':   LABEL_MAP['safe'],
+                'triggered_rules': [],
+                'rule_risk_score': 0,
+                'ml_result':       {'label': 'safe', 'probability': 0.01},
+                'features':        self._extract_features(url) or None,
+                'explanation':     f"Domain '{_org_hostname}' matches the explicitly trusted organizational whitelist.",
+                'whitelist':       {'whitelisted': True, 'domain': _org_hostname, 'source': 'org_whitelist'},
+                'homoglyph':       {'is_suspicious': False, 'technique': 'none', 'detail': '', 'matched_brand': '', 'normalised': '', 'levenshtein_distance': -1},
+                'link_masking':    self._check_link_masking(url, visible_text),
+                'xai':             None,
+                'combined_score':  0.1,
+                'blocklist':       {'is_blocked': False, 'source': 'skipped_org_whitelist'},
+                'zero_trust': {
+                    'passed':       True,
+                    'ssl_valid':    True,
+                    'dns_resolved': True,
+                    'checks': [{
+                        'check':  'skipped_org_whitelist',
+                        'passed': True,
+                        'detail': 'Domain is an explicitly trusted organizational endpoint.'
+                    }],
+                },
+                'zero_day': {
+                    'is_zero_day':    False,
+                    'zero_day_score': 0,
+                    'indicators':     [],
+                },
+            }
 
         # ── Stage 2: Tranco Whitelist (Shortener + Shared-Infrastructure Bypass) ─
         whitelist_result = self.tranco.is_whitelisted(url)
@@ -237,7 +292,6 @@ class URLAnalyzer:
         blocklist_result = self.blocklist.check(url)
 
         # ── Stage 3d: Trusted OAuth / SSO Fast-Return ────────────────────────
-        from urllib.parse import urlparse as _up
         _oauth_host  = _up(url).netloc.lower().split(':')[0]
         _oauth_clean = _oauth_host[4:] if _oauth_host.startswith('www.') else _oauth_host
         _is_trusted_oauth = any(
