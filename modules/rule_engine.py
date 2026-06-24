@@ -3,6 +3,12 @@
 # =============================================================================
 # CHANGES IN THIS VERSION:
 #
+#   COMPOUND TLD AWARENESS (New Fix):
+#     Rule 3 (Excessive Subdomains) now detects compound top-level domains
+#     like .edu.kw, .com.eg, and .ac.uk. It normalizes the effective part
+#     count before checking thresholds, eliminating false positives on
+#     regional academic and corporate platforms.
+#
 #   SCORE KEY ON EVERY RULE:
 #     Every triggered-rule dict now carries a 'score' key (int).  This gives
 #     callers (URLAnalyzer.analyze, IntelLoop, Flutter) a stable per-rule
@@ -41,6 +47,12 @@ class RuleEngine:
     SHORTENER_DOMAINS = {
         "bit.ly", "tinyurl.com", "goo.gl", "ow.ly", "t.co",
         "is.gd", "buff.ly", "adf.ly", "shorte.st",
+    }
+
+    # Common compound TLDs to filter during subdomain validation
+    _COMPOUND_TLDS = {
+        ("edu", "kw"), ("ac", "uk"), ("co", "uk"), ("com", "eg"),
+        ("edu", "eg"), ("org", "eg"), ("net", "eg"), ("gov", "eg"),
     }
 
     # NEW RULE A — brand names checked against the URL path.
@@ -163,7 +175,13 @@ class RuleEngine:
 
         # ── Rule 3: Excessive subdomains ──────────────────────────────────────
         parts = clean_host.split(".")
-        if len(parts) > self.SUBDOMAIN_THRESHOLD:
+        effective_parts = len(parts)
+        
+        # Adjust weight for regional multi-part extensions (e.g., .edu.kw)
+        if len(parts) >= 2 and tuple(parts[-2:]) in self._COMPOUND_TLDS:
+            effective_parts -= 1
+
+        if effective_parts > self.SUBDOMAIN_THRESHOLD:
             triggered.append({
                 "name": "Excessive Subdomains",
                 "description": (
@@ -292,12 +310,9 @@ class RuleEngine:
                 break
 
         # ── RULE D: Brand Name Embedded in Hostname (Hyphen-Based Spoofing) ────
-        # Catches paypal-secure.com, amazon-login.net, microsoft-verify.xyz.
-        # Checks only first and last hyphen-split segments to reduce false positives.
         for brand in self._BRANDS:
             segments = clean_host.split('-')
             if brand in (segments[0], segments[-1]):
-                # Don't flag the real brand domain (paypal.com, amazon.com …)
                 if not (clean_host == brand or clean_host.startswith(brand + '.')):
                     triggered.append({
                         'name': 'Brand Name in Hostname (Spoofing)',
@@ -336,7 +351,7 @@ class RuleEngine:
                             })
                             break
             except Exception:
-                pass  # Malformed query string — skip silently
+                pass
 
         # ── Compute risk score — single source of truth via per-rule 'score' ──
         risk_score = sum(r['score'] for r in triggered)
@@ -356,24 +371,8 @@ class RuleEngine:
         }
 
     # ── Zero-Day Threat Indicators ─────────────────────────────────────────────
-    # Called from URLAnalyzer.analyze() as Stage 6.5 — after the rule engine
-    # and before ML prediction.  All checks are pure heuristics (no I/O).
 
     def check_zero_day(self, url: str) -> dict:
-        """
-        Detect zero-day phishing signals through four heuristic lenses:
-          ZD-1  High URL entropy + suspicious TLD  (auto-generated domains)
-          ZD-2  DGA-like SLD  (digit-heavy or consonant-only hostnames)
-          ZD-3  Extreme URL length on an unrecognised domain
-          ZD-4  Stacked obfuscation (percent-encoding AND double-slash redirect)
-
-        Returns:
-            {
-              'is_zero_day':    bool,
-              'zero_day_score': int,
-              'indicators':     list[dict]
-            }
-        """
         import math
         from urllib.parse import urlparse
 
@@ -381,7 +380,7 @@ class RuleEngine:
         netloc     = parsed.netloc.lower()
         hostname   = netloc.split(':')[0]
         clean_host = hostname[4:] if hostname.startswith('www.') else hostname
-        host_sld   = clean_host.split('.')[0]  # second-level domain label only
+        host_sld   = clean_host.split('.')[0]
 
         indicators: list[dict] = []
         score = 0
@@ -411,7 +410,7 @@ class RuleEngine:
             })
             score += 3
 
-        # ── ZD-2: DGA-like SLD (digit-heavy or near-zero vowel ratio) ─────────
+        # ── ZD-2: DGA-like SLD ────────────────────────────────────────────────
         digits_in_sld = sum(c.isdigit() for c in host_sld)
         digit_ratio   = digits_in_sld / max(len(host_sld), 1)
         vowels_in_sld = sum(c in 'aeiou' for c in host_sld)
@@ -443,7 +442,7 @@ class RuleEngine:
             })
             score += 2
 
-        # ── ZD-4: Stacked obfuscation (percent-encoding + double-slash) ────────
+        # ── ZD-4: Stacked obfuscation ─────────────────────────────────────────
         encoded_count = len(re.findall(r'%[0-9a-fA-F]{2}', url))
         after_scheme  = url.split('://', 1)[-1]
         has_dbl_slash = '//' in after_scheme
@@ -465,3 +464,4 @@ class RuleEngine:
             'zero_day_score': score,
             'indicators':     indicators,
         }
+
