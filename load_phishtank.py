@@ -33,7 +33,7 @@ import pandas as pd
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-_DATA_DIR          = os.path.join(os.path.dirname(__file__), 'data')
+_DATA_DIR          = os.environ.get('DATA_DIR') or os.path.join(os.path.dirname(__file__), 'data')
 _PHISHTANK_PATH    = os.path.join(_DATA_DIR, 'verified_online.csv')
 _TRANCO_PATH       = os.path.join(_DATA_DIR, 'tranco.csv')
 _TRAINING_PATH     = os.path.join(_DATA_DIR, 'training_data.csv')

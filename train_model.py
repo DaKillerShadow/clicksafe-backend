@@ -31,7 +31,7 @@ RANDOM_SEED = 42
 np.random.seed(RANDOM_SEED)
 
 # ── Output path ───────────────────────────────────────────────────────────────
-MODEL_DIR  = os.path.join(os.path.dirname(__file__), "models")
+MODEL_DIR  = os.environ.get('MODEL_DIR') or os.path.join(os.path.dirname(__file__), "models")
 MODEL_PATH = os.path.join(MODEL_DIR, "model.pkl")
 os.makedirs(MODEL_DIR, exist_ok=True)
 
@@ -142,7 +142,10 @@ print("─" * 60)
 # 2. LOAD DATA & EXTRACT FEATURES
 # =============================================================================
 print("\n[1/5] Loading dataset and extracting features …")
-DATA_PATH = os.path.join(os.path.dirname(__file__), "data", "training_data.csv")
+DATA_PATH = os.path.join(
+    os.environ.get('DATA_DIR') or os.path.join(os.path.dirname(__file__), "data"),
+    "training_data.csv",
+)
 
 if not os.path.exists(DATA_PATH):
     raise FileNotFoundError(
@@ -214,4 +217,20 @@ joblib.dump(model, MODEL_PATH)
 print(f"    ✔  model.pkl saved  ({model.n_features_in_} features)\n")
 print("─" * 60)
 print("  Start the Flask server:  python app.py")
+print("─" * 60)
+
+# Named list — used for the feature importance report only.
+FEATURE_NAMES = [
+    "url_length", "hostname_length", "path_length",
+    "num_dots", "num_hyphens", "num_underscores",
+    "num_slashes", "num_query_params", "num_special_chars",
+    "has_ip_host", "has_https", "has_at_sign",
+    "subdomain_count", "url_entropy",
+    "has_suspicious_tld", "hostname_digit_ratio", "vowel_ratio",
+    "has_non_standard_port", "http_count_in_url",
+]
+
+
+print("─" * 60)
+print("  Phishing URL Detector — Model Training (v2, 19 features)")
 print("─" * 60)
