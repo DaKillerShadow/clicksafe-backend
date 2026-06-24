@@ -27,8 +27,7 @@ env/
 ENV/
 
 # ── ML artefacts (large binaries — download or train locally) ─────────────────
-models/model.pkl
-models/*.pkl
+
 
 # ── Generated training data (regenerate with load_phishtank.py) ───────────────
 data/tranco.csv
