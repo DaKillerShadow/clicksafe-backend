@@ -11,6 +11,12 @@
 #     analyze() pipeline) and only adds the zero-day delta on top.
 #     Rule dicts now include a 'score' key matching rule_engine.py's output.
 #
+#   ML RULE CORROBORATION (New):
+#     Added a strict rule corroboration requirement in Stage 8. If a URL is
+#     not in the Tranco whitelist, the ML model alone cannot trigger a
+#     `suspicious` or `likely_phishing` verdict unless its probability is
+#     >= 0.85, or a high severity rule is also triggered.
+#
 #   DEAD CODE REMOVED:
 #     _zero_trust_validate() static method has been removed from URLAnalyzer.
 #     It was moved to DeepAnalyzer in deep_analyzer.py and was unreachable here.
@@ -283,11 +289,8 @@ class URLAnalyzer:
             }
 
         # ── Stage 3.5: Zero Trust — deferred to Deep Path ────────────────────
-        # DNS + TLS checks are too slow for the Fast Path (up to 5 s each).
-        # The DeepAnalyzer runs them in /deep-analyze and returns the result
-        # in the 'zero_trust' field of the deep-path response.
         zero_trust_result = {
-            'passed':       None,   # None = deferred (Flutter renders as "pending")
+            'passed':       None,
             'ssl_valid':    None,
             'dns_resolved': None,
             'checks': [{
@@ -301,8 +304,6 @@ class URLAnalyzer:
         }
 
         # ── Stage 4: Feature Extraction ───────────────────────────────────────
-        # Decode percent-encoded query/fragment before ML extraction so that
-        # 'continue=https%3A%2F%2F...' does not inflate structural features.
         from urllib.parse import urlparse, unquote, urlunparse
         _parsed_for_ml = urlparse(url)
         _ml_url = urlunparse(_parsed_for_ml._replace(
@@ -384,9 +385,6 @@ class URLAnalyzer:
         ml_result = self._predict(features)
 
         # ── Stage 8: Combined Verdict ─────────────────────────────────────────
-        # FIX: preserve the accumulated rule_score from stages 6 and 6.5.
-        # Only add zero-day score on top — with an inflation cap to prevent ZD
-        # alone from pushing a genuinely-safe URL over the phishing threshold.
         has_high_rule = any(r.get('severity') == 'high' for r in triggered_rules)
         zd_score      = zero_day_result.get('zero_day_score', 0) if zero_day_result else 0
 
@@ -397,20 +395,26 @@ class URLAnalyzer:
             else:
                 rule_score += zd_score
 
+        prob = ml_result.get('probability', 0.0)
+        is_whitelisted = whitelist_result.get('whitelisted', False)
+
+        # Rule corroboration requirement: ML alone cannot trigger verdict if not whitelisted
+        ml_corroborated = is_whitelisted or has_high_rule or (prob >= 0.85)
+
         # Verdict: blocklist always wins; otherwise use combined thresholds.
         if blocklist_result.get('is_blocked'):
             verdict = 'likely_phishing'
-        elif rule_score >= 8 or ml_result.get('probability', 0) >= 0.7:
+        elif rule_score >= 8 or (prob >= 0.7 and ml_corroborated):
             if rule_score >= 4 or has_high_rule:
                 verdict = 'likely_phishing'
             else:
                 verdict = 'suspicious'
-        elif rule_score >= 4 or ml_result.get('probability', 0) >= 0.4:
+        elif rule_score >= 4 or (prob >= 0.4 and ml_corroborated):
             verdict = 'suspicious'
         else:
             verdict = 'safe'
 
-        combined_score = round((ml_result['probability'] * 10) + (rule_score * 0.5), 2)
+        combined_score = round((prob * 10) + (rule_score * 0.5), 2)
 
         return {
             'success':         True,
@@ -577,7 +581,7 @@ class URLAnalyzer:
                 else f"Heuristic-only mode — {len(triggered_rules)} rule(s) fired."
             ),
             'feature_contributions': feature_contributions,
-            'ml_probability_pct':    round(ml_result['probability'] * 100, 1),
+            'ml_probability_pct':    round(ml_result.get('probability', 0.0) * 100, 1),
             'rule_count':            len(triggered_rules),
             'high_severity_rules':   high_severity_rules,
             'top_risk_features':     top_risk_features,
