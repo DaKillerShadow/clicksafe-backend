@@ -1,23 +1,17 @@
 # =============================================================================
-# train_model.py  —  ML Model Training Script (v2 — 19 features)
+# train_model.py  —  ML Model Training Script (v2.1 — Augmented 19 features)
 # =============================================================================
-# CHANGES VS v1 (14 features):
-#   Five new features appended at the end of the feature vector so that
-#   existing feature indices [0-13] are unchanged and the expansion is additive:
-#
-#   [14] has_suspicious_tld    — TLD in a known-abused registry (.tk, .xyz…)
-#   [15] hostname_digit_ratio  — fraction of digits in the hostname; machine-
-#                                generated domains have abnormally high ratios
-#   [16] vowel_ratio           — fraction of vowels in hostname; gibberish
-#                                domains deviate from natural language patterns
-#   [17] has_non_standard_port — non-standard port (not 80, 443, 8080, 8443)
-#   [18] http_count_in_url     — number of embedded 'http' occurrences beyond
-#                                the scheme itself; proxy for redirect-chain URLs
+# CHANGES VS v2:
+#   Added `augment_legitimate_paths()` in Step 2.
+#   This function injects realistic synthetic paths into legitimate URLs (label=0)
+#   that have no paths. This directly prevents the Random Forest from heavily 
+#   biasing towards `path_length` and `num_slashes` as indicators of phishing.
 # =============================================================================
 
 import os
 import re
 import math
+import random
 import urllib.parse
 import numpy as np
 import pandas as pd
@@ -29,6 +23,7 @@ import joblib
 # ── Reproducibility ───────────────────────────────────────────────────────────
 RANDOM_SEED = 42
 np.random.seed(RANDOM_SEED)
+random.seed(RANDOM_SEED)
 
 # ── Output path ───────────────────────────────────────────────────────────────
 MODEL_DIR  = os.environ.get('MODEL_DIR') or os.path.join(os.path.dirname(__file__), "models")
@@ -45,7 +40,7 @@ _VOWELS          = set('aeiou')
 _STANDARD_PORTS  = {80, 443, 8080, 8443}
 
 # =============================================================================
-# 1. FEATURE EXTRACTION  (19 features — must match ml_engine.extract_features)
+# 1. FEATURE EXTRACTION
 # =============================================================================
 
 def calculate_entropy(text: str) -> float:
@@ -57,12 +52,7 @@ def calculate_entropy(text: str) -> float:
         entropy -= p * math.log2(p)
     return entropy
 
-
 def extract_features(url: str) -> list:
-    """
-    Returns a list of 19 numerical features for *url*.
-    Feature order MUST stay in sync with ml_engine.py's feature_order list.
-    """
     if not url.startswith(('http://', 'https://')):
         url = 'http://' + url
 
@@ -72,7 +62,6 @@ def extract_features(url: str) -> list:
         path     = parsed.path or ""
         query    = parsed.query or ""
 
-        # ── Features [0-13]: unchanged from v1 ───────────────────────────────
         url_length        = len(url)
         hostname_length   = len(hostname)
         path_length       = len(path)
@@ -88,26 +77,17 @@ def extract_features(url: str) -> list:
         subdomain_count   = max(0, len(hostname.split('.')) - 2) if hostname else 0
         url_entropy       = calculate_entropy(url)
 
-        # ── Feature [14]: has_suspicious_tld ─────────────────────────────────
         tld               = hostname.split('.')[-1].lower() if '.' in hostname else ''
         has_suspicious_tld = int(tld in _SUSPICIOUS_TLDS)
 
-        # ── Feature [15]: hostname_digit_ratio ────────────────────────────────
         hostname_digit_ratio = round(
             sum(c.isdigit() for c in hostname) / max(len(hostname), 1), 6
         )
-
-        # ── Feature [16]: vowel_ratio (of hostname) ───────────────────────────
         vowel_ratio = round(
             sum(c in _VOWELS for c in hostname.lower()) / max(len(hostname), 1), 6
         )
-
-        # ── Feature [17]: has_non_standard_port ───────────────────────────────
         port = parsed.port
         has_non_standard_port = int(bool(port) and port not in _STANDARD_PORTS)
-
-        # ── Feature [18]: http_count_in_url ───────────────────────────────────
-        # Subtract 1 for the scheme itself; remaining hits = embedded redirects
         http_count_in_url = max(0, url.lower().count('http') - 1)
 
         return [
@@ -121,8 +101,6 @@ def extract_features(url: str) -> list:
     except Exception:
         return [0] * 19
 
-
-# Named list — used for the feature importance report only.
 FEATURE_NAMES = [
     "url_length", "hostname_length", "path_length",
     "num_dots", "num_hyphens", "num_underscores",
@@ -133,30 +111,55 @@ FEATURE_NAMES = [
     "has_non_standard_port", "http_count_in_url",
 ]
 
+# =============================================================================
+# 1.5 DATA AUGMENTATION (NEW)
+# =============================================================================
+
+def augment_legitimate_paths(df: pd.DataFrame) -> pd.DataFrame:
+    """Injects synthetic paths into bare legitimate URLs to balance structural features."""
+    synthetic_paths = [
+        '/login', '/app/dashboard', '/search?q=test&lang=en', 
+        '/user/settings/profile', '/v1/api/data', '/index.php?id=1',
+        '/article/2026/tech-news', '/products/category/item-1234',
+        '/assets/js/main.min.js', '/wp-content/uploads/image.png'
+    ]
+    
+    legit_mask = df['label'] == 0
+    
+    def append_path(url):
+        # Only augment if the URL is mostly a bare domain (few slashes)
+        if url.count('/') <= 3 and random.random() < 0.75: # Augment 75% of bare domains
+            return url.rstrip('/') + random.choice(synthetic_paths)
+        return url
+
+    df.loc[legit_mask, 'url'] = df.loc[legit_mask, 'url'].apply(append_path)
+    return df
 
 print("─" * 60)
-print("  Phishing URL Detector — Model Training (v2, 19 features)")
+print("  Phishing URL Detector — Model Training (v2.1, 19 features)")
 print("─" * 60)
 
 # =============================================================================
 # 2. LOAD DATA & EXTRACT FEATURES
 # =============================================================================
-print("\n[1/5] Loading dataset and extracting features …")
+print("\n[1/5] Loading dataset and augmenting legitimate paths …")
 DATA_PATH = os.path.join(
     os.environ.get('DATA_DIR') or os.path.join(os.path.dirname(__file__), "data"),
     "training_data.csv",
 )
 
 if not os.path.exists(DATA_PATH):
-    raise FileNotFoundError(
-        f"Dataset not found at {DATA_PATH}. "
-        "Add training_data.csv or run load_phishtank.py first."
-    )
+    raise FileNotFoundError(f"Dataset not found at {DATA_PATH}.")
 
-df   = pd.read_csv(DATA_PATH)
+df = pd.read_csv(DATA_PATH)
+
+# Apply data augmentation to fix the path bias
+df = augment_legitimate_paths(df)
+
 urls = df["url"].tolist()
 y    = df["label"].values
 
+print("      Extracting features (this may take a moment) ...")
 X_list = [extract_features(u) for u in urls]
 X      = np.array(X_list)
 
@@ -204,7 +207,7 @@ importances = sorted(
     zip(FEATURE_NAMES, model.feature_importances_),
     key=lambda x: x[1], reverse=True,
 )
-print("    Top 5 most important features:")
+print("    Top 5 most important features (Path/Slash bias should be reduced):")
 for name, imp in importances[:5]:
     bar = "█" * int(imp * 100)
     print(f"      {name:<26} {imp:.4f}  {bar}")
@@ -217,20 +220,4 @@ joblib.dump(model, MODEL_PATH)
 print(f"    ✔  model.pkl saved  ({model.n_features_in_} features)\n")
 print("─" * 60)
 print("  Start the Flask server:  python app.py")
-print("─" * 60)
-
-# Named list — used for the feature importance report only.
-FEATURE_NAMES = [
-    "url_length", "hostname_length", "path_length",
-    "num_dots", "num_hyphens", "num_underscores",
-    "num_slashes", "num_query_params", "num_special_chars",
-    "has_ip_host", "has_https", "has_at_sign",
-    "subdomain_count", "url_entropy",
-    "has_suspicious_tld", "hostname_digit_ratio", "vowel_ratio",
-    "has_non_standard_port", "http_count_in_url",
-]
-
-
-print("─" * 60)
-print("  Phishing URL Detector — Model Training (v2, 19 features)")
 print("─" * 60)
