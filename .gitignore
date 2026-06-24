@@ -37,13 +37,6 @@ ENV/
 # updated file when you want a new model in production.
 >>>>>>> 1a2d6293f7ac4c921721c694eb41be20082a1ee2
 
-# ── Generated training data (regenerate with load_phishtank.py) ───────────────
-data/tranco.csv
-data/tranco_top100k.txt
-data/training_data.csv
-data/verified_online.csv
-data/phishing_signatures.json
-
 # ── Selenium / WebDriver artefacts ────────────────────────────────────────────
 .wdm/
 
