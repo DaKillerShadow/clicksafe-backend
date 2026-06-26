@@ -100,6 +100,7 @@ class RuleEngine:
         r'github\.com/[^/]+/[^/]+|'
         r'twitter\.com/[^/]+/status/|'
         r'x\.com/[^/]+/status/|'
+        r'medium\.com/@[^/]+/|'
         r'accounts\.google\.com/|'
         r'login\.microsoftonline\.com/|'
         r'login\.live\.com/|'
@@ -193,7 +194,10 @@ class RuleEngine:
             })
 
         # ── Rule 4: @ symbol ──────────────────────────────────────────────────
-        if self._RE_AT_SIGN.search(url):
+        # Only flag '@' when it appears in the netloc (authority) component —
+        # that's the actual browser-discards-prefix attack. '@' in the path
+        # (e.g. medium.com/@user, x.com/@handle) is a normal URL convention.
+        if self._RE_AT_SIGN.search(netloc):
             triggered.append({
                 "name": "@ Symbol in URL",
                 "description": "Browsers discard everything BEFORE '@', redirecting to the host after it.",
