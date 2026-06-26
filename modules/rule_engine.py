@@ -53,6 +53,11 @@ class RuleEngine:
     _COMPOUND_TLDS = {
         ("edu", "kw"), ("ac", "uk"), ("co", "uk"), ("com", "eg"),
         ("edu", "eg"), ("org", "eg"), ("net", "eg"), ("gov", "eg"),
+        ("com", "au"), ("co", "au"), ("net", "au"), ("org", "au"),
+        ("gov", "au"), ("edu", "au"), ("co", "nz"), ("org", "uk"),
+        ("gov", "uk"), ("net", "uk"), ("co", "il"), ("co", "jp"),
+        ("co", "za"), ("com", "br"), ("com", "tr"), ("co", "in"),
+        ("ac", "in"), ("gov", "in"), ("com", "sg"), ("com", "hk"),
     }
 
     # NEW RULE A — brand names checked against the URL path.
@@ -271,16 +276,17 @@ class RuleEngine:
             })
 
         # ── NEW RULE A: Brand Name in Path (Impersonation) ────────────────────
+        path_tokens = re.split(r'[\/\-_.?=&]+', path)
         for brand in self._BRANDS:
-            if brand in path and brand not in clean_host:
+            if brand in path_tokens and brand not in clean_host:
                 triggered.append({
                     "name": "Brand Name in Path (Impersonation)",
                     "description": (
                         f"Brand '{brand}' appears in the URL path but not in the domain. "
                         "This is a classic technique to make phishing pages look legitimate."
                     ),
-                    "severity": "high",
-                    "score":    self._SCORE_HIGH,
+                    "severity": "medium",
+                    "score":    self._SCORE_MEDIUM,
                 })
                 break
 
@@ -308,8 +314,8 @@ class RuleEngine:
                         "a free platform commonly abused to host phishing pages "
                         "with no domain registration or identity verification."
                     ),
-                    "severity": "high",
-                    "score":    self._SCORE_HIGH,
+                    "severity": "medium",
+                    "score":    self._SCORE_MEDIUM,
                 })
                 break
 
@@ -468,4 +474,5 @@ class RuleEngine:
             'zero_day_score': score,
             'indicators':     indicators,
         }
+
 
