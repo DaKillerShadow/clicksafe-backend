@@ -561,11 +561,26 @@ class URLAnalyzer:
         if not visible_domains:
             return {'checked': True, 'is_masked': False, 'detail': 'No domain in visible text.'}
 
+        def _is_same_or_subdomain(visible_domain: str, href_dom: str) -> bool:
+            """
+            True only when href_dom IS visible_domain or a genuine subdomain of it.
+            Fixes two bugs in the old substring (`in`) check:
+              1. 'paypal.com' in 'paypal.com.evil.xyz' → True (false-safe) — now caught.
+              2. 'apple.com'  in 'snapple.com'         → True (false-safe) — now caught.
+            """
+            vd = visible_domain.lower().strip('.')
+            hd = href_dom.lower().strip('.')
+            return hd == vd or hd.endswith('.' + vd)
+
         for vd in visible_domains:
-            vd_lower = vd.lower()
-            vd_clean = vd_lower[4:] if vd_lower.startswith('www.') else vd_lower
-            hd_clean = href_domain[4:] if href_domain.startswith('www.') else href_domain
-            if vd_clean not in hd_clean and hd_clean not in vd_clean:
+            vd_clean = vd.lower()
+            if vd_clean.startswith('www.'):
+                vd_clean = vd_clean[4:]
+            hd_clean = href_domain
+            if hd_clean.startswith('www.'):
+                hd_clean = hd_clean[4:]
+
+            if not _is_same_or_subdomain(vd_clean, hd_clean):
                 return {
                     'checked':        True,
                     'is_masked':      True,
@@ -573,6 +588,7 @@ class URLAnalyzer:
                     'actual_domain':  href_domain,
                     'detail':         f"Link masking: {vd} vs {href_domain}",
                 }
+
         return {'checked': True, 'is_masked': False, 'detail': 'Domains match.'}
 
     @staticmethod
@@ -674,4 +690,3 @@ class URLAnalyzer:
             parts.append("Domain is NOT in the global Tranco whitelist.")
 
         return ' '.join(parts)
-
