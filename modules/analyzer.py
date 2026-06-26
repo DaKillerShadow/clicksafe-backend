@@ -453,7 +453,7 @@ class URLAnalyzer:
         is_whitelisted = whitelist_result.get('whitelisted', False)
 
         # Rule corroboration requirement: ML alone cannot trigger verdict if not whitelisted
-        ml_corroborated = is_whitelisted or has_high_rule or (prob >= 0.85)
+        ml_corroborated = is_whitelisted or has_high_rule
 
         # Verdict: blocklist always wins; otherwise use combined thresholds.
         if blocklist_result.get('is_blocked'):
@@ -674,3 +674,4 @@ class URLAnalyzer:
             parts.append("Domain is NOT in the global Tranco whitelist.")
 
         return ' '.join(parts)
+
