@@ -26,16 +26,11 @@ venv/
 env/
 ENV/
 
-<<<<<<< HEAD
-# ── ML artefacts (large binaries — download or train locally) ─────────────────
-
-=======
 # ── ML artefacts ────────────────────────────────────────────────────────────
 # models/model.pkl IS tracked. Free-tier deploys have no persistent disk,
 # so build.sh no longer trains on every build — it ships the model
 # committed here instead. Run train_model.py locally and commit the
 # updated file when you want a new model in production.
->>>>>>> 1a2d6293f7ac4c921721c694eb41be20082a1ee2
 
 # ── Selenium / WebDriver artefacts ────────────────────────────────────────────
 .wdm/
