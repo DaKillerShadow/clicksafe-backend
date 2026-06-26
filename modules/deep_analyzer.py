@@ -86,7 +86,7 @@ try:
     from selenium.webdriver.chrome.service import Service as ChromeService
     from selenium.webdriver.common.by import By
     from selenium.common.exceptions import WebDriverException, TimeoutException
-    from webdriver_manager.chrome import ChromeDriverManager
+    # webdriver-manager removed: ChromeDriver is pre-installed in the Docker image
     _SELENIUM_AVAILABLE = True
 except ImportError:
     _SELENIUM_AVAILABLE = False
@@ -402,7 +402,10 @@ class DeepAnalyzer:
 
         driver = None
         try:
-            service = ChromeService(ChromeDriverManager().install())
+            # Use the pre-installed ChromeDriver (installed in Dockerfile at build time).
+            # Falls back to PATH lookup if the explicit path is not found.
+            _CHROMEDRIVER_PATH = os.environ.get("CHROMEDRIVER_PATH", "/usr/local/bin/chromedriver")
+            service = ChromeService(executable_path=_CHROMEDRIVER_PATH)
             driver  = webdriver.Chrome(service=service, options=options)
             driver.set_page_load_timeout(BROWSER_TIMEOUT)
             driver.set_script_timeout(10)
