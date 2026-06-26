@@ -116,23 +116,38 @@ FEATURE_NAMES = [
 # =============================================================================
 
 def augment_legitimate_paths(df: pd.DataFrame) -> pd.DataFrame:
-    """Injects synthetic paths into bare legitimate URLs to balance structural features."""
+    """Injects synthetic subdomains and paths into bare legitimate URLs to
+    balance structural features (subdomain_count, path_length, num_slashes)
+    that would otherwise correlate with the phishing class purely because
+    Tranco entries are bare apex domains with no subdomain or path."""
+    synthetic_subdomains = [
+        'www', 'app', 'dashboard', 'mail', 'support', 'status',
+        'docs', 'blog', 'shop', 'portal', 'secure', 'my', 'api',
+    ]
     synthetic_paths = [
-        '/login', '/app/dashboard', '/search?q=test&lang=en', 
+        '/login', '/app/dashboard', '/search?q=test&lang=en',
         '/user/settings/profile', '/v1/api/data', '/index.php?id=1',
         '/article/2026/tech-news', '/products/category/item-1234',
-        '/assets/js/main.min.js', '/wp-content/uploads/image.png'
+        '/assets/js/main.min.js', '/wp-content/uploads/image.png',
+        '/@username/a-long-descriptive-post-title-with-many-words',
+        '/monitors/803366314', '/auth/login?returnUrl=%2Fhome',
     ]
-    
+
     legit_mask = df['label'] == 0
-    
-    def append_path(url):
+
+    def augment(url):
+        parsed   = urllib.parse.urlparse(url)
+        hostname = parsed.hostname or ''
+        # ~40% chance: prepend a realistic subdomain
+        if hostname and random.random() < 0.4:
+            sub = random.choice(synthetic_subdomains)
+            url = url.replace(hostname, f'{sub}.{hostname}', 1)
         # Only augment if the URL is mostly a bare domain (few slashes)
         if url.count('/') <= 3 and random.random() < 0.75: # Augment 75% of bare domains
             return url.rstrip('/') + random.choice(synthetic_paths)
         return url
 
-    df.loc[legit_mask, 'url'] = df.loc[legit_mask, 'url'].apply(append_path)
+    df.loc[legit_mask, 'url'] = df.loc[legit_mask, 'url'].apply(augment)
     return df
 
 print("─" * 60)
@@ -221,3 +236,4 @@ print(f"    ✔  model.pkl saved  ({model.n_features_in_} features)\n")
 print("─" * 60)
 print("  Start the Flask server:  python app.py")
 print("─" * 60)
+
