@@ -28,4 +28,4 @@ RUN pip install gunicorn
 COPY . .
 
 # Run the app with gunicorn binding to Render's dynamic PORT variable
-CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-5000} app:app"]
+CMD ["sh", "-c", "gunicorn -w 1 -b 0.0.0.0:${PORT:-5000} --timeout 120 --keep-alive 5 app:app"]
