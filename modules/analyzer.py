@@ -188,6 +188,7 @@ class URLAnalyzer:
                 'blocklist': None,
                 'zero_trust': None,
                 'zero_day':   None,
+                'deep_scan_recommended': False,
             }
 
         url = validation['url']
@@ -219,6 +220,7 @@ class URLAnalyzer:
                 'xai':             None,
                 'combined_score':  0.1,
                 'blocklist':       {'is_blocked': False, 'source': 'skipped_org_whitelist'},
+                'deep_scan_recommended': False,
                 'zero_trust': {
                     'passed':       True,
                     'ssl_valid':    True,
@@ -267,6 +269,7 @@ class URLAnalyzer:
                 'xai':             None,
                 'combined_score':  0.2,
                 'blocklist':       {'is_blocked': False, 'source': 'skipped_whitelist'},
+                'deep_scan_recommended': False,
                 'zero_trust': {
                     'passed':       True,
                     'ssl_valid':    True,
@@ -328,6 +331,7 @@ class URLAnalyzer:
                 'xai':          None,
                 'combined_score': 0.1,
                 'blocklist':    blocklist_result,
+                'deep_scan_recommended': False,
                 'zero_trust': {
                     'passed':       True,
                     'ssl_valid':    True,
@@ -470,6 +474,14 @@ class URLAnalyzer:
 
         combined_score = round((prob * 10) + (rule_score * 0.5), 2)
 
+        # Gray-zone flag: verdict is 'safe' only because nothing corroborated
+        # an elevated ML score (not because the model was confidently low).
+        # Surface this so the client can offer/auto-run a Deep Scan instead
+        # of presenting an uncorroborated 'safe' as if it were a clean bill.
+        deep_scan_recommended = (
+            verdict == 'safe' and not is_whitelisted and 0.5 <= prob < 0.90
+        )
+
         return {
             'success':         True,
             'error':           '',
@@ -493,6 +505,7 @@ class URLAnalyzer:
             'blocklist':       blocklist_result,
             'zero_trust':      zero_trust_result,
             'zero_day':        zero_day_result,
+            'deep_scan_recommended': deep_scan_recommended,
         }
 
     def get_feature_importances(self) -> list[dict]:
